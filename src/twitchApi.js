@@ -3,6 +3,9 @@
 const request = require('request-promise');
 const logger = require('./logger').getLogger();
 
+const oauthEndpoint = 'https://id.twitch.tv/oauth2',
+    helixEndpoint = 'https://api.twitch.tv/helix';
+
 /**
  * Twitch API
  * @constructor
@@ -40,7 +43,7 @@ TwitchApi.prototype.isLive = async function(channel) {
 TwitchApi.prototype.validateAccessToken = async function(token) {
     try {
         var response = await request({
-            url: 'https://id.twitch.tv/oauth2/validate',
+            url: `${oauthEndpoint}/validate`,
             method: 'GET',
             headers: {
                 Authorization: 'OAuth ' + token
@@ -188,21 +191,49 @@ TwitchApi.prototype.updateUser = async function(description) {
 };
 
 /**
+ * Creates a stream marker for the specified user's stream with the given description.
+ * This method requires authentication scope `user:edit:broadcast`.
+ * 
+ * @param {string|number} userId
+ * @param {string?} description
+ */
+TwitchApi.prototype.createStreamMarker = async function(userAccessToken, userId, description) {
+    logger.debug('Creating stream marker');
+    try {
+        return await request({
+            uri: `${helixEndpoint}/streams/markers`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userAccessToken}`
+            },
+            body: {
+                user_id: userId, 
+                description
+            },
+            json: true
+        });
+    } catch (err) {
+        throw err;
+    }
+}
+
+/**
  * Authenticate the current user and get the access token to be used in the private calls.
  * @return The access token.
  */
-TwitchApi.prototype.getAccessToken = async function() {
+TwitchApi.prototype.getAccessToken = async function(scopes = ['user:edit', 'user:read:email']) {
     logger.debug('Getting access token from twitch API.');
     try {
         if (!this.accessToken) {
             var response = await request({
-                url: 'https://id.twitch.tv/oauth2/token',
+                url: `${oauthEndpoint}/token`,
                 method: 'POST',
                 form: {
                     client_id: this.config.clientId,
                     client_secret: this.config.clientSecret,
                     grant_type: 'client_credentials',
-                    scope: 'user:edit user:read:email'
+                    scope: scopes.join(' ')
                 },
                 json: true
             });
@@ -214,6 +245,28 @@ TwitchApi.prototype.getAccessToken = async function() {
         throw err;
     }
 };
+
+TwitchApi.prototype.refreshUserAccessToken = async function(refreshToken) {
+    logger.debug('Refreshing access token via twitch API');
+    // if (!userAccessToken) {
+    //     throw new Error('Refresh token is not specified.');
+    // }
+
+    if (!refreshToken) {
+        throw new Error('Refresh token is not specified.');
+    }
+
+    let response = await request({
+        url: `${oauthEndpoint}/token`,
+        method: 'POST',
+        form: {
+            refresh_token: refreshToken,
+            client_id: this.config.clientId,
+            client_secret: this.config.clientSecret,
+            grant_type: 'refresh_token'
+        }
+    });
+}
 
 /**
  * @private
@@ -298,10 +351,54 @@ async function _performPutRequest(url, clientId, body, accessToken) {
     }
 }
 
+/**
+ * @private
+ * Perform the POST request
+ * @param {string} url The request URL
+ * @param {string} clientId The clientId of the app
+ * @param {object} body The body of the request
+ * @param {string} accessToken The access token sent when making the request
+ */
+async function _performPostRequest(url, clientId, body, accessToken) {
+    logger.debug(
+        'Performing POST request to Twitch API to URL: ' +
+            url +
+            ' with body: ' +
+            JSON.stringify(body) +
+            ' .'
+    );
+    try {
+        let headers = {
+            'Client-ID': clientId,
+            'Content-Type': 'application/json'
+        };
+        if (accessToken) {
+            headers['Authorization'] = 'Bearer ' + accessToken;
+        }
+
+        var response = await request({
+            url: url,
+            method: 'POST',
+            headers: headers,
+            body: body,
+            json: true
+        });
+
+        if (response.data && response.data.length > 0) {
+            return null;
+        } else {
+            return response;
+        }
+    } catch (err) {
+        throw err;
+    }
+}
+
 /* test code */
 if (process.env.NODE_ENV === 'test') {
     TwitchApi.prototype._performGetRequest = _performGetRequest;
     TwitchApi.prototype._performPutRequest = _performPutRequest;
+    TwitchApi.prototype._performPostRequest = _performPostRequest;
 }
 /* end-test code */
 
