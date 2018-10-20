@@ -264,7 +264,8 @@ TwitchApi.prototype.refreshUserAccessToken = async function(refreshToken) {
             client_id: this.config.clientId,
             client_secret: this.config.clientSecret,
             grant_type: 'refresh_token'
-        }
+        },
+        json: true
     });
 
     return {
