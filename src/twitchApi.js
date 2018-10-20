@@ -266,6 +266,11 @@ TwitchApi.prototype.refreshUserAccessToken = async function(refreshToken) {
             grant_type: 'refresh_token'
         }
     });
+
+    return {
+        accessToken: response.access_token,
+        refreshToken: response.refresh_token
+    };
 }
 
 /**
